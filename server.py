@@ -1,6 +1,7 @@
 import socket
 import threading
 import random
+import time
 
 # Banco de questões no servidor
 questoes = [
@@ -12,7 +13,7 @@ questoes = [
 ]
 
 # Definir o número de jogadores (excluindo o servidor)
-NUM_JOGADORES = 2  # 4 jogadores + servidor que apenas administra
+NUM_JOGADORES = 2  # 2 jogadores
 NUM_QUESTOES = 5
 
 # Randomizar as questões
@@ -57,7 +58,7 @@ def servidor():
     server.listen(NUM_JOGADORES)
     print("Servidor aguardando conexões...")
 
-    # Aguardando os jogadores conectarem (ignora o servidor como jogador)
+    # Aguardando os jogadores conectarem
     threads = []
     for jogador_id in range(NUM_JOGADORES):
         client_socket, client_address = server.accept()
@@ -72,30 +73,35 @@ def servidor():
     # Jogo começa aqui (o servidor apenas envia perguntas e analisa respostas)
     for i, (pergunta, resposta_correta) in enumerate(questoes[:NUM_QUESTOES]):
         print(f"Iniciando questão {i+1}: {pergunta}")
+
+        # Enviar a pergunta para todos os jogadores
+        enviar_para_todos(f"Pergunta {i+1}: {pergunta}")
+        time.sleep(1)  # Pausa para os jogadores receberem a pergunta
+
         vencedor_encontrado = False
 
-        # Enviar a pergunta para todos os jogadores de uma vez
-        enviar_para_todos(f"Pergunta {i+1}: {pergunta}")
+        # Coletar respostas de todos os jogadores
+        for jogador_id, jogador_socket in jogadores.items():
+            try:
+                resposta_cliente = jogador_socket.recv(1024).decode('utf-8').strip()
 
-        while not vencedor_encontrado:
-            for jogador_id, jogador_socket in jogadores.items():
-                try:
-                    resposta_cliente = jogador_socket.recv(1024).decode('utf-8').strip()
+                # Verificar se o jogador acertou e se ainda não há um vencedor para essa rodada
+                if not vencedor_encontrado and resposta_cliente.lower() == resposta_correta.lower():
+                    pontuacoes[jogador_id] += 1  # Atribuir ponto ao jogador que acertou
+                    jogador_socket.send("Correto! Você ganhou o ponto.".encode('utf-8'))
 
-                    # Se o jogador acertar a resposta
-                    if resposta_cliente.lower() == resposta_correta.lower():
-                        pontuacoes[jogador_id] += 1  # Atribuir ponto ao jogador que acertou
-                        jogador_socket.send("Correto! Aguardando a próxima pergunta...".encode('utf-8'))
+                    # Informar a todos os jogadores que esse jogador acertou
+                    enviar_para_todos(f"Jogador {jogador_id} acertou a questão! Preparando próxima pergunta...")
+                    vencedor_encontrado = True  # Marcar como encontrado o vencedor
 
-                        # Informar a todos os jogadores que a questão foi acertada
-                        enviar_para_todos(f"Jogador {jogador_id} acertou a questão! Preparando próxima pergunta...")
+                else:
+                    jogador_socket.send("Incorreto. Aguardando a próxima pergunta...".encode('utf-8'))
 
-                        # Dar uma pequena pausa antes de enviar a próxima questão
-                        vencedor_encontrado = True
-                        break  # Sai do loop dos jogadores
+            except:
+                print(f"Erro ao comunicar com o jogador {jogador_id}")
 
-                except:
-                    print(f"Erro ao comunicar com o jogador {jogador_id}")
+        # Dar uma pequena pausa antes de enviar a próxima pergunta
+        time.sleep(3)
 
     # Fechar as conexões e mostrar o vencedor
     print("\n--- Jogo terminado ---")
