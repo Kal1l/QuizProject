@@ -2,6 +2,7 @@ import socket
 import threading
 import random
 import time
+import select
 
 # Banco de questões no servidor
 questoes = [
@@ -12,16 +13,18 @@ questoes = [
     ("Quem escreveu 'Dom Quixote'?", "Miguel de Cervantes")
 ]
 
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 # Definir o número de jogadores (excluindo o servidor)
 NUM_JOGADORES = 2  # 2 jogadores
 NUM_QUESTOES = 5
+MSG_LENGTH = 5
 
 # Randomizar as questões
 random.shuffle(questoes)
 
 # Estrutura para manter as pontuações dos jogadores
 pontuacoes = {}
-jogadores = {}
+jogadores = []
 jogadores_conectados = 0
 lock = threading.Lock()
 
@@ -32,7 +35,7 @@ def handle_client(client_socket, client_address, jogador_id):
 
     # Adiciona o jogador à lista de jogadores conectados
     with lock:
-        jogadores[jogador_id] = client_socket
+        jogadores.append(client_socket)
         pontuacoes[jogador_id] = 0
         jogadores_conectados += 1
 
@@ -43,17 +46,78 @@ def handle_client(client_socket, client_address, jogador_id):
     print(f"Todos os jogadores conectados! Começando o jogo.")
 
 # Função para enviar uma mensagem para todos os clientes
-def enviar_para_todos(mensagem):
-    for jogador_socket in jogadores.values():
+def enviar_para_todos(sender, mensagem):
+    if isinstance(mensagem, str):
+        mensagem_bytes = mensagem.encode('utf-8')
+    else:
+        mensagem_bytes = mensagem
+    mensagem_completa = mensagem_bytes
+    for jogador_socket in jogadores:
         try:
-            jogador_socket.send(mensagem.encode('utf-8'))
-        except:
-            print("Erro ao enviar mensagem para um jogador.")
+            jogador_socket.send(mensagem_completa)
+        except Exception as e:
+            print(f"Erro ao enviar mensagem: {e}")
+            jogador_socket.close()
+            jogadores.remove(jogador_socket)
+                
+def receber_mensagem(client_socket):
+    try:
+        mensagem = client_socket.recv(1024).decode('utf-8')
+        if mensagem:
+            return mensagem
+        else:
+            jogadores.remove(client_socket)
+            client_socket.close()
+            return None
+    except Exception as e:
+        print(f"Erro ao receber mensagem: {e}")
+        jogadores.remove(client_socket)
+        client_socket.close()
+        return None
+    
+def enviar_uma_mensagem(receiver, mensagem):
+    try:
+        if isinstance(mensagem, str):
+            mensagem_bytes = mensagem.encode('utf-8')
+        else:
+            mensagem_bytes = mensagem
+        receiver.sendall(mensagem_bytes)
+    except Exception as e:
+        print(f"Erro ao enviar mensagem: {e}")
+        receiver.close()
+        jogadores.remove(receiver)
+        
+def enviar_mensagem_final():
+    print("\n--- Jogo Terminado ---")
+    mensagem_final = "\n--- Jogo Terminado ---\n"
+    
+    for jogador, pontos in pontuacoes.items():
+        resultado = f"\nJogador {jogador}: {pontos} pontos\n"
+        print(resultado)
+        mensagem_final += resultado
+        
+    max_pontos = max(pontuacoes.values())
+    vencedores = [jogador for jogador, pontos in pontuacoes.items() if pontos == max_pontos]
+    
+    if len(vencedores) > 1:
+        resultado = f"\nEmpate entre os jogadores {', '.join(map(str, vencedores))} com {max_pontos} pontos!\n"
+        print(resultado)
+        mensagem_final += resultado
+    else:
+        vencedor = vencedores[0]
+        resultado = f"\nO jogador {vencedor} venceu o jogo!\n"
+        print(resultado)
+        mensagem_final += resultado
+        
+    enviar_para_todos(server, mensagem_final)
+    
+    for jogador_socket in jogadores:
+        jogador_socket.close()
 
 # Função principal do servidor (apenas admin, sem participação como jogador)
 def servidor():
     global jogadores_conectados
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(('0.0.0.0', 9999))  # Porta 9999
     server.listen(NUM_JOGADORES)
     print("Servidor aguardando conexões...")
@@ -75,45 +139,43 @@ def servidor():
         print(f"Iniciando questão {i+1}: {pergunta}")
 
         # Enviar a pergunta para todos os jogadores
-        enviar_para_todos(f"Pergunta {i+1}: {pergunta}")
+        enviar_para_todos(server, f"Pergunta {i+1}: {pergunta}")
         time.sleep(1)  # Pausa para os jogadores receberem a pergunta
-
+        
+        respostas= {}
+        sockets_jogadores = jogadores
+        
+        while len(respostas) < NUM_JOGADORES:
+            readable, _, _ = select.select(sockets_jogadores, [], [], None)
+            
+            for jogador_socket in readable:
+                jogador_id = jogadores.index(jogador_socket)
+                try:
+                    resposta_cliente = jogador_socket.recv(1024).decode('utf-8').strip()
+                    if resposta_cliente:
+                        respostas[jogador_id] = resposta_cliente  # Salvar a resposta do jogador
+                except Exception as e:
+                    print(f"Erro ao comunicar com o jogador {jogador_id}: {e}")
+                    jogadores.remove(jogador_socket)
+                    
         vencedor_encontrado = False
-
-        # Coletar respostas de todos os jogadores
-        for jogador_id, jogador_socket in jogadores.items():
-            try:
-                resposta_cliente = jogador_socket.recv(1024).decode('utf-8').strip()
-
-                # Verificar se o jogador acertou e se ainda não há um vencedor para essa rodada
-                if not vencedor_encontrado and resposta_cliente.lower() == resposta_correta.lower():
+        primeiro_a_acertar = None
+        for jogador_id, resposta_cliente in respostas.items():
+            if resposta_cliente.lower() == resposta_correta.lower():
+                if not vencedor_encontrado:
                     pontuacoes[jogador_id] += 1  # Atribuir ponto ao jogador que acertou
-                    jogador_socket.send("Correto! Você ganhou o ponto.".encode('utf-8'))
-
-                    # Informar a todos os jogadores que esse jogador acertou
-                    enviar_para_todos(f"Jogador {jogador_id} acertou a questão! Preparando próxima pergunta...")
-                    vencedor_encontrado = True  # Marcar como encontrado o vencedor
-
+                    enviar_uma_mensagem(jogadores[jogador_id], "Correto! Você ganhou o ponto.")
+                    enviar_para_todos(server, f"Jogador {jogador_id} acertou a questão!")
+                    vencedor_encontrado = True
+                    primeiro_a_acertar = jogador_id
                 else:
-                    jogador_socket.send("Incorreto. Aguardando a próxima pergunta...".encode('utf-8'))
-
-            except:
-                print(f"Erro ao comunicar com o jogador {jogador_id}")
-
+                    enviar_uma_mensagem(jogadores[jogador_id], f"Você acertou, mas o Jogador {primeiro_a_acertar} respondeu primeiro e ganhou o ponto.")
+            else:
+                enviar_uma_mensagem(jogadores[jogador_id], "Incorreto. Aguardando a próxima pergunta.")
+        
         # Dar uma pequena pausa antes de enviar a próxima pergunta
         time.sleep(3)
 
-    # Fechar as conexões e mostrar o vencedor
-    print("\n--- Jogo terminado ---")
-    for jogador, pontos in pontuacoes.items():
-        print(f"Jogador {jogador}: {pontos} pontos")
-
-    vencedor = max(pontuacoes, key=pontuacoes.get)
-    print(f"O jogador {vencedor} venceu o jogo!")
-
-    # Fechar todas as conexões
-    for jogador_socket in jogadores.values():
-        jogador_socket.close()
-
 if __name__ == "__main__":
     servidor()
+    enviar_mensagem_final()
