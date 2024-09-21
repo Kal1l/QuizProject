@@ -10,14 +10,19 @@ questoes = [
     ("Qual é a fórmula química da água?", "H2O"),
     ("Quem pintou a Mona Lisa?", "Leonardo da Vinci"),
     ("Qual é o planeta mais próximo do Sol?", "Mercúrio"),
-    ("Quem escreveu 'Dom Quixote'?", "Miguel de Cervantes")
+    ("Quem escreveu 'Dom Quixote'?", "Miguel de Cervantes"),
+    ("Quantos continentes existem no mundo?", "Sete"),
+    ("Qual é o maior oceano do mundo?", "Pacífico"),
+    ("Qual é o número romano para 10?", "X"),
+    ("Quantos dias tem um ano bissexto?", "366"),
+    ("Quem foi o primeiro homem a pisar na Lua?", "Neil Armstrong")
 ]
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 # Definir o número de jogadores (excluindo o servidor)
-NUM_JOGADORES = 2  # 2 jogadores
-NUM_QUESTOES = 5
-MSG_LENGTH = 5
+NUM_JOGADORES = 2  # 2 jogadores MUDAR PRA 4 QUANDO FOR TESTAR
+NUM_QUESTOES = 10
+MSG_LENGTH = 10
 
 # Randomizar as questões
 random.shuffle(questoes)
