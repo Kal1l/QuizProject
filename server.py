@@ -19,8 +19,8 @@ questoes = [
 ]
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-# Definir o número de jogadores (excluindo o servidor)
-NUM_JOGADORES = 2  # 2 jogadores MUDAR PRA 4 QUANDO FOR TESTAR
+# Definir o número de jogadores (excluindo o servidor) e questões
+NUM_JOGADORES = 4
 NUM_QUESTOES = 10
 MSG_LENGTH = 10
 
@@ -64,7 +64,8 @@ def enviar_para_todos(sender, mensagem):
             print(f"Erro ao enviar mensagem: {e}")
             jogador_socket.close()
             jogadores.remove(jogador_socket)
-                
+
+# Função para receber as respostas enviadas do client
 def receber_mensagem(client_socket):
     try:
         mensagem = client_socket.recv(1024).decode('utf-8')
@@ -79,7 +80,8 @@ def receber_mensagem(client_socket):
         jogadores.remove(client_socket)
         client_socket.close()
         return None
-    
+
+# Função para enviar uma mensagem para um client específico
 def enviar_uma_mensagem(receiver, mensagem):
     try:
         if isinstance(mensagem, str):
@@ -91,11 +93,13 @@ def enviar_uma_mensagem(receiver, mensagem):
         print(f"Erro ao enviar mensagem: {e}")
         receiver.close()
         jogadores.remove(receiver)
-        
+
+# Função para enviar a mensagem de fim de jogo, anunciar o vencedor e fechar as conexões
 def enviar_mensagem_final():
     print("\n--- Jogo Terminado ---")
     mensagem_final = "\n--- Jogo Terminado ---\n"
     
+    # Mostrar as pontuações finais
     for jogador, pontos in pontuacoes.items():
         resultado = f"\nJogador {jogador}: {pontos} pontos\n"
         print(resultado)
@@ -104,6 +108,7 @@ def enviar_mensagem_final():
     max_pontos = max(pontuacoes.values())
     vencedores = [jogador for jogador, pontos in pontuacoes.items() if pontos == max_pontos]
     
+    # Se houver mais de um vencedor, é um empate
     if len(vencedores) > 1:
         resultado = f"\nEmpate entre os jogadores {', '.join(map(str, vencedores))} com {max_pontos} pontos!\n"
         print(resultado)
@@ -149,10 +154,12 @@ def servidor():
         
         respostas= {}
         sockets_jogadores = jogadores
-        
+
+        # Aguardar as respostas dos jogadores
         while len(respostas) < NUM_JOGADORES:
             readable, _, _ = select.select(sockets_jogadores, [], [], None)
-            
+
+            # Receber respostas dos jogadores
             for jogador_socket in readable:
                 jogador_id = jogadores.index(jogador_socket)
                 try:
@@ -165,7 +172,7 @@ def servidor():
                     
         vencedor_encontrado = False
         primeiro_a_acertar = None
-        for jogador_id, resposta_cliente in respostas.items():
+        for jogador_id, resposta_cliente in respostas.items(): # Verificar as respostas dos jogadores
             if resposta_cliente.lower() == resposta_correta.lower():
                 if not vencedor_encontrado:
                     pontuacoes[jogador_id] += 1  # Atribuir ponto ao jogador que acertou
@@ -181,6 +188,7 @@ def servidor():
         # Dar uma pequena pausa antes de enviar a próxima pergunta
         time.sleep(3)
 
+# Iniciar o servidor
 if __name__ == "__main__":
     servidor()
     enviar_mensagem_final()
